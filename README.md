@@ -292,6 +292,9 @@ carrier stage-3 has not been reached. `www/t.php?mode=warm` and
 Verified on this lab (PROOF):
 
 - `php:8.4.26-apache` and `php:8.3.35-apache`
+- a freshly started container. Stage 3 depends on the live heap; a container
+  that has served many requests/rotations can miss it even when stages 1-2
+  still leak (`docker compose up -d --force-recreate apache8426` resets it)
 - mod_php + Apache prefork, one worker:
   `StartServers=1`, `MaxRequestWorkers=1`, `KeepAlive Off`
 - php.ini as in `docker/ini/<target>.ini`: `memory_limit=8M`,
