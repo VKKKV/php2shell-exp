@@ -20,6 +20,32 @@ bound to `127.0.0.1` only, with `no-new-privileges`, `pids_limit` and
 override (`docker/compose.calibrate.yml`) adds it so `calibrate` can read its
 own worker's Zend chunk.
 
+## How the chain works
+
+CVE-2026-109619 is a cross-request use-after-free: a worker keeps global
+state (session, upload progress, error state) that points into the previous
+request's memory, and the next request touches it before RINIT has replaced
+it. The chain turns that into a controlled call:
+
+1. Stage 1 - heap leak. An arm request with 1001 multipart fields trips the
+   `max_input_vars` warning before the session id is generated; the follow-up
+   B request then uses 841 fillers and a forged `zend_string` length to make
+   `Set-Cookie` carry a set of heap pointers. The 2 MiB-aligned mode of those
+   pointers is the Zend MM chunk base.
+2. Stage 2 - libphp leak. An array-shaped spray (983 groups, target 406/16)
+   makes the dangling `PS(id)` overlay a `HashTable`; `cookie[8:16]` is the
+   table's `pDestructor`, i.e. `zval_ptr_dtor`. Subtracting the resolved
+   symbol offset gives the `libphp.so` base.
+3. Stage 3 - execute. A carrier rewrites a just-freed reference/string slot
+   and plants a 167-byte fake `HashTable` plus `execute_data`;
+   `pDestructor` is `zif_system` and `arg1` points at the command string in
+   the carrier. The 167-byte carrier leaves 14 bytes for `CMD`.
+
+ASLR changes every absolute address, so both bases are leaked at run time.
+What is stable per build is the relative geometry - where the UAF object
+lands, which slot size is reusable, how session ids are validated - and that
+is exactly what a profile records.
+
 ## MSF-style entrypoint (p2s.py)
 
 ```text
@@ -87,6 +113,40 @@ python3 p2s.py --resource p2s.rc
 
 `CMD` is limited to 14 bytes by the 167-byte carrier. Longer commands need a
 script on a writable mount, e.g. `sh</out/c`.
+
+## Why every build needs its own profile
+
+The chain code is fixed; the numbers are not. A profile is the measured
+description of one build:
+
+| field | controls | why it changes |
+|---|---|---|
+| `symbols`, `symbols_sha256` | `zif_system` / `zval_ptr_dtor` offsets, plus the libphp digest measured | resolved by name at run time; the digest records which build the numbers came from |
+| `stage1.fillers`, `value_len`, `forge_len`, `forge_len_field`, `arm_value_len` | multipart heap shaping for the chunk leak | Zend MM bin selection and free order change with the build |
+| `stage2.groups`, `target`, `target_count`, `value_len`, `arm_value_len` | array spray for the `pDestructor` leak | the array/`HashTable` layout and allocation order change |
+| `htdata_offset` | offset of the fake `HashTable` in the Zend chunk | 8.4.26 = `0x690d8`, 8.3.35 = `0x6a0d8`; `0x1000` off and it misses |
+| `stage3.pads` | arm-request pads `[name_len, val_len]` | they place the 167-byte carrier on the freed 32/40-byte slot |
+| `carrier.kind/len/count`, `spray.*` | which slot the carrier reuses and how it is shaped | 8.4.26 uses `patch_low7` 15B x2; the 8.5.11 seed uses `live_reference` 31B |
+| `stage*.sid_len` | session id length in the B request | 8.2 rejects the historical 19-byte id; 8.3.35 accepts it |
+| `limits`, `big_mb` | OOM trigger and input limits | `memory_limit=8M`, `max_input_vars=1000` and the 12MB field set the bailout point |
+
+Four things break reuse across versions:
+
+- Build layout. `zend_string`/`HashTable`/`Bucket`/`zend_reference` sizes,
+  Zend MM bin behavior and compiler flags all change; the same request
+  sequence lands somewhere else.
+- Code paths. 8.2.34 rejects a short session id before a dangling `PS(id)`
+  exists; 8.3.35 leaks with the same 19-byte id. No offset tweak fixes a
+  different code path.
+- Runtime environment. Whether the 12MB field goes to mmap or the process
+  heap depends on the glibc mmap threshold, `memory_limit` and container
+  limits. 8.5.11 still fails with dinosn's runtime replicated, and his own
+  `nb_pure` fails in the same container - the failure is environmental.
+- ASLR. Absolute addresses cannot be pinned; profiles store relative
+  geometry, and symbols are resolved at run time.
+
+`calibrate.py` measures the numbers rather than guessing them: the oracles
+below are what turn a seed profile into a working one.
 
 ## Calibration
 
@@ -206,6 +266,45 @@ Observed failure point (two bounded rounds, then stop):
 Consequence: no 8.5.11 profile has been calibrated and the 31-byte live
 carrier stage-3 has not been reached. `www/t.php?mode=warm` and
 `www/_warm.php` are lab-only calibration helpers.
+
+## Scope: where this works
+
+Verified on this lab (PROOF):
+
+- `php:8.4.26-apache` and `php:8.3.35-apache`
+- mod_php + Apache prefork, one worker:
+  `StartServers=1`, `MaxRequestWorkers=1`, `KeepAlive Off`
+- php.ini as in `docker/ini/<target>.ini`: `memory_limit=8M`,
+  `post_max_size=64M`, `upload_max_filesize=64M`, `max_input_vars=1000`,
+  `session.save_path=/tmp` writable, `session.upload_progress.enabled=On`,
+  `session.use_strict_mode=0`, `session.use_cookies=1`
+- a request body of about 12MB can reach the target; the target is on
+  `127.0.0.1` and you are authorized to test it
+- `CMD` is at most 14 bytes; the proof is written to `/out/p1`
+- x86_64 Linux user-space addresses (the profile assumes 2 MiB chunks and
+  the `0x7f...` pointer range)
+
+Affected but not exploited by this chain: 8.2.34 (stage 1 is blocked by
+session id validation; the 19-byte id is rejected and the 32-byte id gives
+no leak), 8.5.11 (unknown / LEAK_FAILED, environment-sensitive), and the
+fixed controls 8.4.27 / 8.5.12 / 8.2.35 / 8.3.36 (negative only, not proof
+that the build is patched). The per-version sections above carry the
+evidence.
+
+Not applicable:
+
+- non-prefork SAPIs. Under php-fpm/nginx the upload-progress encode runs
+  after RINIT, which has already cleared the stale state, so this chain does
+  not apply.
+- other builds or distro packages without recalibration (symbols may
+  resolve, heap geometry will not).
+- multi-worker production: the next request must hit the same worker, so
+  success becomes probabilistic.
+- proxies or WAFs that truncate a 12MB body, or `session.upload_progress`
+  disabled.
+- arbitrary remote hosts: the advisory describes unauthenticated RCE, but
+  this repo only proves the lab images; a real target needs its own
+  `calibrate` run and matching ini.
 
 ## What this proves / does not prove
 
