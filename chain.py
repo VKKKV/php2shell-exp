@@ -46,9 +46,43 @@ IS_STRING = 6
 IS_REFERENCE = 10
 IS_ARRAY_EX = 0x307
 
+# Exit codes shared with p2s.py (see README).
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_OPTION = 2
+EXIT_UNKNOWN = 3
+EXIT_REFUSED = 4            # affected/stage-1 blocked, or uncalibrated profile
+
 
 def log(msg: str) -> None:
     print(msg, flush=True)
+
+
+def calibration_refusal(prof: dict) -> str | None:
+    """Return why a profile must not reach stage 3, or None when it may.
+
+    A seed profile has no measured `heap.htdata_offset` (or says so in
+    `calibration.generated_by`).  Running stage 3 with it would forge a
+    fake HashTable at an address nobody measured, so `chain.py run` and
+    `p2s.py exploit` refuse before touching the target.  `check` and
+    `doctor` stay allowed: they only exercise stage 1 / read build facts.
+    """
+    heap = prof.get("heap") or {}
+    htdata = heap.get("htdata_offset", 0)
+    gen = str((prof.get("calibration") or {}).get("generated_by", ""))
+    reasons: list[str] = []
+    if not isinstance(htdata, int) or htdata == 0:
+        reasons.append("heap.htdata_offset is 0 (stage-3 HTDATA address unmeasured)")
+    if "not calibrated" in gen.lower():
+        reasons.append(f"calibration.generated_by={gen!r}")
+    if not reasons:
+        return None
+    return (
+        f"profile {prof.get('target', '?')} is a seed / not calibrated "
+        f"({'; '.join(reasons)}); stage 3 would forge pointers from unmeasured "
+        "geometry. `check` and `doctor` are still allowed; run "
+        f"`chain.py calibrate --target {prof.get('target', '<target>')}` first."
+    )
 
 
 def build_multipart(parts: list[dict], boundary: bytes) -> bytes:
@@ -515,6 +549,10 @@ class Chain:
 
     # ---------------- orchestration ----------------
     def run(self, retries: int = 3, rotate_retries: bool = True) -> int:
+        refusal = calibration_refusal(self.p)
+        if refusal:
+            log(f"REFUSED: {refusal}")
+            return EXIT_REFUSED
         cmd = self.p["proof"]["cmd"].encode()
         if len(cmd) > MAX_CMD:
             raise SystemExit(f"proof.cmd is limited to {MAX_CMD} bytes by the 167-byte carrier")
@@ -751,6 +789,12 @@ def main(argv: list[str] | None = None) -> int:
         prof["proof"]["cmd"] = args.cmd
     if args.proof_file:
         prof["proof"]["file"] = args.proof_file
+
+    if args.action == "run":
+        refusal = calibration_refusal(prof)
+        if refusal:
+            log(f"REFUSED: {refusal}")
+            return EXIT_REFUSED
 
     if not args.no_up and args.action in ("run", "calibrate"):
         ensure_up(args.target)

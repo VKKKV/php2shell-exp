@@ -189,10 +189,11 @@ class Module:
             return 2
         leak = prof["heap"].get("leak", "split")
         target = prof["target"]
+        meta = prof.get("check") or {}
         if leak == "combined":
             print(f"[?] {prof['url']} ({target}): unknown - combined leak profile is not "
                   f"checkable without executing the chain")
-            return 3
+            return C.EXIT_UNKNOWN
         ch = C.Chain(prof, syms, verbose=bool(self.options["VERBOSE"]),
                      timeout=float(self.options["TIMEOUT"]))
         try:
@@ -200,12 +201,16 @@ class Module:
             chunk = ch.stage1()
         except Exception as e:  # noqa: BLE001 - network/target errors are undecidable
             print(f"[?] {prof['url']} ({target}): unknown - {e}")
-            return 3
+            return C.EXIT_UNKNOWN
         if chunk:
             print(f"[+] {prof['url']} ({target}): vulnerable - stage1 heap leak chunk=0x{chunk:x}")
-            return 0
+            return C.EXIT_OK
+        if meta.get("result") == "affected_blocked":
+            reason = str(meta.get("reason", "")).strip() or "stage1 blocked"
+            print(f"[!] {prof['url']} ({target}): affected - stage1 blocked: {reason}")
+            return C.EXIT_REFUSED
         print(f"[-] {prof['url']} ({target}): not vulnerable - stage1 leak failed")
-        return 1
+        return C.EXIT_FAILED
 
     def exploit(self) -> int:
         if self.path.startswith("auxiliary/"):
@@ -216,6 +221,10 @@ class Module:
         except (OptionError, SystemExit) as e:
             print(f"[-] exploit: {e}")
             return 2
+        refusal = C.calibration_refusal(prof)
+        if refusal:
+            print(f"[-] exploit REFUSED: {refusal}")
+            return C.EXIT_REFUSED
         cmd = str(self.options["CMD"])
         proof_file = str(self.options["PROOF_FILE"])
         if any(ch in cmd for ch in "<>|&"):
@@ -247,6 +256,11 @@ class Module:
             sys.stdout = old_stdout
             tee.close()
         proof = ch.read_proof()
+        if rc == C.EXIT_REFUSED:
+            C.log("[-] exploit refused: profile is a seed / not calibrated "
+                  "(stage 3 skipped; `check` and `doctor` still work)")
+            C.log(f"[-] log: {log_path}")
+            return C.EXIT_REFUSED
         if rc == 0 and proof:
             C.log(f"[+] PROOF: {proof}")
             C.log(f"[+] log: {log_path}")

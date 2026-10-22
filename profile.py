@@ -39,6 +39,11 @@ Schema (schema=1):
     "progress_len": 3
   },
   "proof": {"cmd": "id>/out/p1", "file": "/out/p1"},
+  "check": {                           # optional: what `p2s.py check` reports
+    "result": "affected_blocked",      # vulnerable|not_vulnerable|unknown|affected_blocked
+    "exit": 4,                         # must match the result's exit code
+    "reason": "stage1 blocked by <build> reset_id/send_cookie semantics"
+  },
   "calibration": {                    # provenance written by calibrate
     "generated_by": "chain.py calibrate",
     "timestamp": "...",
@@ -64,6 +69,9 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 PROFILE_DIR = os.path.join(REPO, "profiles")
 
 CARRIER_KINDS = ("patch_low7", "live_reference")
+# Optional `check` object: the honest support-matrix result for this build.
+CHECK_RESULTS = ("vulnerable", "not_vulnerable", "unknown", "affected_blocked")
+CHECK_EXITS = {"vulnerable": 0, "not_vulnerable": 1, "unknown": 3, "affected_blocked": 4}
 
 
 def profile_path(target: str, directory: str = PROFILE_DIR) -> str:
@@ -152,6 +160,22 @@ def validate(data: dict) -> list[str]:
             errors.append(f"symbols.{key} missing (resolved by name at calibrate time)")
     for key in ("cmd",):
         _need(data["proof"], key, errors, "proof.")
+    chk = data.get("check")
+    if chk is not None:
+        if not isinstance(chk, dict):
+            errors.append("check must be an object")
+        else:
+            result = chk.get("result")
+            if result not in CHECK_RESULTS:
+                errors.append(f"check.result must be one of {CHECK_RESULTS}, got {result!r}")
+            exit_code = chk.get("exit")
+            if not isinstance(exit_code, int) or isinstance(exit_code, bool):
+                errors.append(f"check.exit must be an integer, got {exit_code!r}")
+            elif result in CHECK_EXITS and exit_code != CHECK_EXITS[result]:
+                errors.append(f"check.exit must be {CHECK_EXITS[result]} for result "
+                              f"{result!r}, got {exit_code}")
+            if result == "affected_blocked" and not str(chk.get("reason", "")).strip():
+                errors.append("check.reason must explain the affected_blocked result")
     return errors
 
 

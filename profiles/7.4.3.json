@@ -62,6 +62,11 @@
     "cmd": "id>/out/p1",
     "file": "/out/p1"
   },
+  "check": {
+    "result": "affected_blocked",
+    "exit": 4,
+    "reason": "7.4.3 reset_id/send_cookie: the failed cookie send is followed by an unconditional clear"
+  },
   "calibration": {
     "generated_by": "seed; stage-1 blocked by 7.4.3 reset_id/send_cookie semantics; not calibrated",
     "symbols_sha256": "6f0183edd64fe6435c51d61298a7be47343ba9e614b859cf31051c7d1b4b44fa"

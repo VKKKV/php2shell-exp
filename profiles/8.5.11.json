@@ -512,6 +512,11 @@
     "cmd": "id>/out/p1",
     "file": "/out/p1"
   },
+  "check": {
+    "result": "unknown",
+    "exit": 3,
+    "reason": "combined-leak profile is not checkable without executing the chain"
+  },
   "calibration": {
     "generated_by": "seed (dinosn 8.5.11 port: 31B live carrier); NOT calibrated"
   },

@@ -76,14 +76,20 @@ profile; offsets and heap geometry come from that profile.
 | target | check result | exit |
 |---|---|---|
 | 8.4.26 | vulnerable (stage-1 heap leak) | 0 |
-| 8.4.27 | not vulnerable (stage-1 leak fails) | 1 |
-| 8.5.11 | unknown (combined-leak profile not checkable) | 3 |
-| 8.5.12 | not vulnerable (stage-1 leak fails) | 1 |
-| 8.2.34 | check negative (stage-1 blocked; build is *affected*) | 1 |
-| 7.4.3 | check negative (stage-1 blocked; build is *affected*) | 1 |
 | 8.3.35 | vulnerable (stage-1 heap leak) | 0 |
-| 8.2.35 | not vulnerable (stage-1 leak fails; fixed control) | 1 |
-| 8.3.36 | not vulnerable (stage-1 leak fails; fixed control) | 1 |
+| 8.4.27 | not vulnerable (fixed control; stage-1 leak fails) | 1 |
+| 8.5.12 | not vulnerable (fixed control; stage-1 leak fails) | 1 |
+| 8.2.35 | not vulnerable (fixed control; stage-1 leak fails) | 1 |
+| 8.3.36 | not vulnerable (fixed control; stage-1 leak fails) | 1 |
+| 8.5.11 | unknown (combined-leak profile not checkable) | 3 |
+| 8.2.34 | affected, stage1 blocked (`reset_id`/`send_cookie`) | 4 |
+| 7.4.3 | affected, stage1 blocked (`reset_id`/`send_cookie`) | 4 |
+
+`affected, stage1 blocked` is not "not vulnerable": the build is in the CVE
+range, but this chain's stage-1 leak channel cannot fire on it. The result
+comes from the profile's optional `check` object
+(`{"result": "affected_blocked", "exit": 4, "reason": "..."}`), so the
+support matrix is data, not a hardcoded table.
 
 Measured on this lab (p2s.py, 2026-10-22):
 
@@ -92,8 +98,8 @@ Measured on this lab (p2s.py, 2026-10-22):
 [-] http://127.0.0.1:19127/index.php (8.4.27): not vulnerable - stage1 leak failed
 [?] http://127.0.0.1:19111/index.php (8.5.11): unknown - combined leak profile is not checkable without executing the chain
 [+] http://127.0.0.1:19129/index.php (8.3.35): vulnerable - stage1 heap leak chunk=0x7fc7b5600000
-[-] http://127.0.0.1:19128/index.php (8.2.34): not vulnerable - stage1 leak failed
-[-] http://127.0.0.1:19133/index.php (7.4.3): not vulnerable - stage1 leak failed
+[!] http://127.0.0.1:19128/index.php (8.2.34): affected - stage1 blocked: 8.2.34 reset_id/send_cookie: the failed cookie send is followed by an unconditional clear
+[!] http://127.0.0.1:19133/index.php (7.4.3): affected - stage1 blocked: 7.4.3 reset_id/send_cookie: the failed cookie send is followed by an unconditional clear
 [-] http://127.0.0.1:19130/index.php (8.2.35): not vulnerable - stage1 leak failed
 [-] http://127.0.0.1:19131/index.php (8.3.36): not vulnerable - stage1 leak failed
 ```
@@ -102,7 +108,15 @@ Measured on this lab (p2s.py, 2026-10-22):
 gid=33(www-data) groups=33(www-data)`.
 
 Exit codes: 0 success / vulnerable, 1 failure / not vulnerable,
-2 option error, 3 check undecidable.
+2 option error, 3 check undecidable, 4 affected but stage-1 blocked
+(also returned by `run`/`exploit` when the profile is a seed / not
+calibrated).
+
+`run` and `exploit` refuse to reach stage 3 when `heap.htdata_offset` is `0`
+or `calibration.generated_by` contains `not calibrated`: they print
+`REFUSED: profile <v> is a seed / not calibrated (...)`, return 4, and leave
+the target untouched. `check` and `doctor` still work on seed profiles — that
+is how the affected/blocked rows above are produced.
 
 Non-interactive:
 
@@ -226,9 +240,12 @@ still does not exploit 7.4.3:
 
 - Arm: 1001 fields trip `max_input_vars`; the response contains
   "Cannot send session cookie - headers already sent" and then the OOM
-  fatal. The B request returns 708 bytes with **no** `Set-Cookie`; it
-  reports "The session id is too long or contains illegal characters" and
-  "Failed to read session data: files (path: /tmp)".
+  fatal. With the current arm order (fillers, `PHPSESSID`, file part, then
+  the 12MB field) the B request returns 708 bytes with **no** `Set-Cookie`;
+  it reports "The session id is too long or contains illegal characters" and
+  "Failed to read session data: files (path: /tmp)". A big-first variant
+  (12MB field before the file part) instead returns 258 bytes with a random
+  32-hex `Set-Cookie` — still not a leak (p6 audit finding N2).
 - Source: 7.4.3 `php_session_reset_id()` (ext/session/session.c:1435)
   calls `php_session_send_cookie()` and then clears `PS(send_cookie)`
   unconditionally. The arm's send fails because the warning already sent
@@ -237,9 +254,9 @@ still does not exploit 7.4.3:
   leak-cookie branch. This is the same blocker as 8.2.34.
 - A bounded filler sweep (780, 800, 820, 841, 860, 880, 900) produced no
   `Set-Cookie`; heap geometry cannot restore a flag the code cleared.
-- `check` is negative (exit 1): the stage-1 oracle does not fire. That does
-  not mean 7.4.3 is patched; the official 7.4 backport exists and the
-  upload-progress path is affected.
+- `check` reports `affected - stage1 blocked` (exit 4): the stage-1 oracle
+  does not fire. That does not mean 7.4.3 is patched; the official 7.4
+  backport exists and the upload-progress path is affected.
 
 A future 7.4 port needs a different producer/consumer pair, not another
 filler/pad sweep. The profile remains a seed; `htdata_offset` is `0`.
@@ -278,8 +295,9 @@ the request-level symptoms below are from the lab session):
   separate project rather than a bounded round.
 
 This version is in the affected range, but this chain does **not** exploit
-it. The p2s `check` result `not vulnerable` for 8.2.34 means only "our leak
-oracle is negative"; it is not evidence that the build is patched.
+it. The p2s `check` result `affected - stage1 blocked` (exit 4) for 8.2.34
+means only "our leak oracle is negative"; it is not evidence that the build
+is patched.
 
 ## 8.5.11 bounded attempt (still NO PROOF)
 
