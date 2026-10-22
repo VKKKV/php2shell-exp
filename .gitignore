@@ -1,0 +1,6 @@
+out/
+logs/
+__pycache__/
+*.pyc
+.ruff_cache/
+BRIEF.md

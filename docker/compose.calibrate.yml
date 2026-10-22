@@ -1,0 +1,31 @@
+# Calibration override: grants SYS_PTRACE only to the services whose worker
+# heap `chain.py calibrate` reads through /proc/<pid>/mem.
+#
+#   docker compose -f docker/compose.yml -f docker/compose.calibrate.yml up -d apache8426
+#
+# The exploit path does not need this capability.
+services:
+  apache8234:
+    cap_add:
+      - SYS_PTRACE
+  apache8235:
+    cap_add:
+      - SYS_PTRACE
+  apache8335:
+    cap_add:
+      - SYS_PTRACE
+  apache8336:
+    cap_add:
+      - SYS_PTRACE
+  apache8426:
+    cap_add:
+      - SYS_PTRACE
+  apache8427:
+    cap_add:
+      - SYS_PTRACE
+  apache8511:
+    cap_add:
+      - SYS_PTRACE
+  apache8512:
+    cap_add:
+      - SYS_PTRACE

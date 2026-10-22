@@ -1,0 +1,153 @@
+# php2shell-exp lab: official php:*-apache images, one prefork worker each.
+# Every port is bound to 127.0.0.1 only.
+name: php2shell-exp
+
+x-common: &common
+  platform: linux/amd64
+  security_opt:
+    - no-new-privileges:true
+  # Calibration reads the worker's own Zend heap through /proc/<pid>/mem.
+  # It is not part of the exploit path; grant it only with the override:
+  #   docker compose -f docker/compose.yml -f docker/compose.calibrate.yml up -d
+  pids_limit: 64
+  mem_limit: 640m
+  restart: unless-stopped
+  volumes:
+    - ../www:/var/www/html:ro
+    - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+
+services:
+  apache8426:
+    <<: *common
+    image: php:8.4.26-apache
+    container_name: php2shell-exp-8426
+    ports:
+      - "127.0.0.1:19126:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.4.26.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8426:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache8427:
+    <<: *common
+    image: php:8.4.27-apache
+    container_name: php2shell-exp-8427
+    ports:
+      - "127.0.0.1:19127:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.4.27.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8427:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache8511:
+    <<: *common
+    # pinned to the digest used by the dinosn lab (PHP 8.5.11)
+    image: php@sha256:974e3a920309308e1690ed607e6cc3061d6906f90cc8d30fe519daa48bccf101
+    container_name: php2shell-exp-8511
+    hostname: php-rfc1867-rce-lab
+    # dinosn lab runtime shape (bounded experiment)
+    mem_limit: 256m
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    ports:
+      - "127.0.0.1:19111:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork-8511.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.5.11.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8511:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache8512:
+    <<: *common
+    image: php:8.5.12-apache
+    container_name: php2shell-exp-8512
+    ports:
+      - "127.0.0.1:19112:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.5.12.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8512:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache8234:
+    <<: *common
+    image: php:8.2.34-apache
+    container_name: php2shell-exp-8234
+    ports:
+      - "127.0.0.1:19128:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.2.34.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8234:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache8335:
+    <<: *common
+    image: php:8.3.35-apache
+    container_name: php2shell-exp-8335
+    ports:
+      - "127.0.0.1:19129:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.3.35.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8335:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache8235:
+    <<: *common
+    image: php:8.2.35-apache
+    container_name: php2shell-exp-8235
+    ports:
+      - "127.0.0.1:19130:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.2.35.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8235:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache8336:
+    <<: *common
+    image: php:8.3.36-apache
+    container_name: php2shell-exp-8336
+    ports:
+      - "127.0.0.1:19131:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/8.3.36.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/8336:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground

