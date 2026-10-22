@@ -80,6 +80,7 @@ profile; offsets and heap geometry come from that profile.
 | 8.5.11 | unknown (combined-leak profile not checkable) | 3 |
 | 8.5.12 | not vulnerable (stage-1 leak fails) | 1 |
 | 8.2.34 | check negative (stage-1 blocked; build is *affected*) | 1 |
+| 7.4.3 | check negative (stage-1 blocked; build is *affected*) | 1 |
 | 8.3.35 | vulnerable (stage-1 heap leak) | 0 |
 | 8.2.35 | not vulnerable (stage-1 leak fails; fixed control) | 1 |
 | 8.3.36 | not vulnerable (stage-1 leak fails; fixed control) | 1 |
@@ -92,6 +93,7 @@ Measured on this lab (p2s.py, 2026-10-22):
 [?] http://127.0.0.1:19111/index.php (8.5.11): unknown - combined leak profile is not checkable without executing the chain
 [+] http://127.0.0.1:19129/index.php (8.3.35): vulnerable - stage1 heap leak chunk=0x7fc7b5600000
 [-] http://127.0.0.1:19128/index.php (8.2.34): not vulnerable - stage1 leak failed
+[-] http://127.0.0.1:19133/index.php (7.4.3): not vulnerable - stage1 leak failed
 [-] http://127.0.0.1:19130/index.php (8.2.35): not vulnerable - stage1 leak failed
 [-] http://127.0.0.1:19131/index.php (8.3.36): not vulnerable - stage1 leak failed
 ```
@@ -127,7 +129,7 @@ description of one build:
 | `htdata_offset` | offset of the fake `HashTable` in the Zend chunk | 8.4.26 = `0x690d8`, 8.3.35 = `0x6a0d8`; `0x1000` off and it misses |
 | `stage3.pads` | arm-request pads `[name_len, val_len]` | they place the 167-byte carrier on the freed 32/40-byte slot |
 | `carrier.kind/len/count`, `spray.*` | which slot the carrier reuses and how it is shaped | 8.4.26 uses `patch_low7` 15B x2; the 8.5.11 seed uses `live_reference` 31B |
-| `stage*.sid_len` | session id length in the B request | request shaping; the 8.2 blocker is `reset_id`/`send_cookie`, not id validation |
+| `stage*.sid_len` | session id length in the B request | request shaping; the 7.4.3/8.2 blocker is `reset_id`/`send_cookie`, not id validation |
 | `limits`, `big_mb` | OOM trigger and input limits | `memory_limit=8M`, `max_input_vars=1000` and the 12MB field set the bailout point |
 
 Four things break reuse across versions:
@@ -135,9 +137,9 @@ Four things break reuse across versions:
 - Build layout. `zend_string`/`HashTable`/`Bucket`/`zend_reference` sizes,
   Zend MM bin behavior and compiler flags all change; the same request
   sequence lands somewhere else.
-- Code paths. 8.2.34 rejects a short session id before a dangling `PS(id)`
-  exists; 8.3.35 leaks with the same 19-byte id. No offset tweak fixes a
-  different code path.
+- Code paths. 7.4.3 and 8.2.34 clear `send_cookie` after a failed cookie
+  send (headers already sent); 8.3.35/8.4.26 return `FAILURE` and keep it,
+  so the B request can leak. No offset tweak fixes a different code path.
 - Runtime environment. Whether the 12MB field goes to mmap or the process
   heap depends on the glibc mmap threshold, `memory_limit` and container
   limits. 8.5.11 still fails with dinosn's runtime replicated, and his own
@@ -212,6 +214,35 @@ leak-cookie branch. 8.3.35/8.4.26 return `FAILURE` and keep the flag set.
 `chain.py` still allows a profile to set `heap.stage1.sid_len`,
 `heap.stage2.sid_len` and `stage3.b_sid_len` for request shaping; 8.4.26
 omits them and keeps its verified 19-byte id.
+
+## 7.4.3 bounded attempt (NO PROOF, affected version)
+
+`php:7.4.3-apache` (Debian 10, Apache 2.4.38, `libphp7.so` sha256
+`6f0183ed...`), `zif_system +0x32a020`, `zval_ptr_dtor +0x40e0d0`.
+PHP 7.4 is in the CVE-2026-109619 class: the official
+`PHP-7.4-CVE-2026-109618-109619` source-backport branch disables the
+upload-progress callback (`if (!PS(rfc1867_enabled) || true)`). This chain
+still does not exploit 7.4.3:
+
+- Arm: 1001 fields trip `max_input_vars`; the response contains
+  "Cannot send session cookie - headers already sent" and then the OOM
+  fatal. The B request returns 708 bytes with **no** `Set-Cookie`; it
+  reports "The session id is too long or contains illegal characters" and
+  "Failed to read session data: files (path: /tmp)".
+- Source: 7.4.3 `php_session_reset_id()` (ext/session/session.c:1435)
+  calls `php_session_send_cookie()` and then clears `PS(send_cookie)`
+  unconditionally. The arm's send fails because the warning already sent
+  headers, so the flag is lost before B. 8.3.35/8.4.26 return `FAILURE`
+  before clearing, which is why their B request still enters the
+  leak-cookie branch. This is the same blocker as 8.2.34.
+- A bounded filler sweep (780, 800, 820, 841, 860, 880, 900) produced no
+  `Set-Cookie`; heap geometry cannot restore a flag the code cleared.
+- `check` is negative (exit 1): the stage-1 oracle does not fire. That does
+  not mean 7.4.3 is patched; the official 7.4 backport exists and the
+  upload-progress path is affected.
+
+A future 7.4 port needs a different producer/consumer pair, not another
+filler/pad sweep. The profile remains a seed; `htdata_offset` is `0`.
 
 ## 8.2.34 bounded attempt (still NO PROOF, affected version)
 
@@ -307,12 +338,12 @@ Verified on this lab (PROOF):
 - x86_64 Linux user-space addresses (the profile assumes 2 MiB chunks and
   the `0x7f...` pointer range)
 
-Affected but not exploited by this chain: 8.2.34 (stage 1 is blocked by
-`reset_id`/`send_cookie` semantics, not by session id validation; both
-19-byte and 32-byte ids give no leak), 8.5.11 (unknown / LEAK_FAILED,
-environment-sensitive), and the fixed controls 8.4.27 / 8.5.12 / 8.2.35 /
-8.3.36 (negative only, not proof that the build is patched). The per-version
-sections above carry the evidence.
+Affected but not exploited by this chain: 7.4.3 and 8.2.34 (stage 1 is
+blocked by `reset_id`/`send_cookie` semantics; 7.4.3's B request has no
+`Set-Cookie`, 8.2.34 gives no leak with either 19- or 32-byte ids),
+8.5.11 (unknown / LEAK_FAILED, environment-sensitive), and the fixed
+controls 8.4.27 / 8.5.12 / 8.2.35 / 8.3.36 (negative only, not proof that
+the build is patched). The per-version sections above carry the evidence.
 
 Not applicable:
 
@@ -352,6 +383,9 @@ Does not prove:
   been calibrated and the 31-byte live-carrier stage-3 was not reached.
 - That 8.2.34 is patched, or that this chain can exploit it: the stage-1
   oracle is negative at both 19-byte and 32-byte session ids.
+- That 7.4.3 is patched, or that this chain can exploit it: the stage-1
+  oracle is negative and the B request has no `Set-Cookie`; 7.4.3 clears
+  `send_cookie` after the failed send.
 - Any remote/Internet target, any non-prefork SAPI, or any build whose
   libphp symbols differ without recalibration.
 

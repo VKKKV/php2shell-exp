@@ -151,3 +151,19 @@ services:
       - /bin/sh
       - -c
       - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground
+
+  apache743:
+    <<: *common
+    image: php:7.4.3-apache
+    container_name: php2shell-exp-743
+    ports:
+      - "127.0.0.1:19133:80"
+    volumes:
+      - ../www:/var/www/html:ro
+      - ./apache-prefork.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./ini/7.4.3.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ../out/743:/out
+    command:
+      - /bin/sh
+      - -c
+      - chown -R www-data:www-data /out 2>/dev/null || true; chmod 777 /out 2>/dev/null || true; exec apache2-foreground

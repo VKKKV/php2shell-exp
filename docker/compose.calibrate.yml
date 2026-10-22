@@ -29,3 +29,6 @@ services:
   apache8512:
     cap_add:
       - SYS_PTRACE
+  apache743:
+    cap_add:
+      - SYS_PTRACE
