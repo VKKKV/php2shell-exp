@@ -301,9 +301,11 @@ class Chain:
     def _sid(opts: dict) -> bytes:
         """Session id used by the leak/execute B request.
 
-        PHP 8.2/8.3 reject ids shorter than session.sid_length (32) with
-        "Too short session ID"; 8.4.26 accepted the historical 18-byte id.
-        Profiles opt in via `<stage>.sid_len`.
+        Inbound ids are accepted at 1..256 chars from [A-Za-z0-9,-],
+        independent of session.sid_length. 8.2.34's blocker is
+        php_session_reset_id() clearing send_cookie after a failed cookie
+        send, not id validation. Profiles set `<stage>.sid_len` for request
+        shaping.
         """
         if opts.get("sid"):
             return str(opts["sid"]).encode()

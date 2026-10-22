@@ -127,7 +127,7 @@ description of one build:
 | `htdata_offset` | offset of the fake `HashTable` in the Zend chunk | 8.4.26 = `0x690d8`, 8.3.35 = `0x6a0d8`; `0x1000` off and it misses |
 | `stage3.pads` | arm-request pads `[name_len, val_len]` | they place the 167-byte carrier on the freed 32/40-byte slot |
 | `carrier.kind/len/count`, `spray.*` | which slot the carrier reuses and how it is shaped | 8.4.26 uses `patch_low7` 15B x2; the 8.5.11 seed uses `live_reference` 31B |
-| `stage*.sid_len` | session id length in the B request | 8.2 rejects the historical 19-byte id; 8.3.35 accepts it |
+| `stage*.sid_len` | session id length in the B request | request shaping; the 8.2 blocker is `reset_id`/`send_cookie`, not id validation |
 | `limits`, `big_mb` | OOM trigger and input limits | `memory_limit=8M`, `max_input_vars=1000` and the 12MB field set the bailout point |
 
 Four things break reuse across versions:
@@ -205,12 +205,13 @@ symbols        = zif_system +0x3ac080, zval_ptr_dtor +0x49ec50
 `p2s.py -x exploit/php2shell/109619 ... -o TARGET=8.3.35 -o CMD=id` both
 printed `PROOF: uid=33(www-data) gid=33(www-data) groups=33(www-data)`.
 
-Note: PHP 8.2's session startup rejects the historical 19-byte id
-(`Too short session ID`) before a dangling `PS(id)` exists; 8.3.35 still
-leaks with the same 19-byte id despite the warning. `chain.py` therefore
-allows a profile to override the B-request id via `heap.stage1.sid_len`,
-`heap.stage2.sid_len` and `stage3.b_sid_len`; 8.4.26 omits them and keeps
-its verified 19-byte id.
+Note: the 19-byte id is not rejected by PHP 8.2 either; the difference is
+in `php_session_reset_id()`. 8.2.34 clears `PS(send_cookie)` even when the
+cookie send fails (headers already sent), so the B request never enters the
+leak-cookie branch. 8.3.35/8.4.26 return `FAILURE` and keep the flag set.
+`chain.py` still allows a profile to set `heap.stage1.sid_len`,
+`heap.stage2.sid_len` and `stage3.b_sid_len` for request shaping; 8.4.26
+omits them and keeps its verified 19-byte id.
 
 ## 8.2.34 bounded attempt (still NO PROOF, affected version)
 
@@ -221,15 +222,29 @@ the request-level symptoms below are from the lab session):
 
 - Endpoint `/index.php` (same 10-byte path as 8.4.26); `session.save_path=/tmp`
   writable; exactly one `www-data` prefork worker.
-- With the historical 19-byte id, the stage-1 B request fails at session
-  startup: `PHP Request Startup: Failed to create session data file path.
-  Too short session ID, invalid save_path or path length exceeds 4096
-  characters`; no `Set-Cookie`.
-- With a full-length 32-byte id the request returns `OK` but no leak cookie:
-  the forge never lands on `PS(id)`.
+- The historical 19-byte id is **accepted**: inbound ids are valid at
+  1..256 chars from `[A-Za-z0-9,-]`, independent of `session.sid_length`.
+  The `Too short session ID, invalid save_path or path length exceeds 4096
+  characters` warning comes from `ps_files_path_create()` when the residual
+  `PS(id)` has `len == 0` during `s_read`, not from session startup.
+- The real blocker is `php_session_reset_id()`: 8.2.34 calls
+  `php_session_send_cookie()` and then clears `PS(send_cookie)` even when the
+  send failed because the arm already sent headers. 8.3.35/8.4.26 return
+  `FAILURE` and keep `send_cookie == 1`, which is what the B request needs to
+  enter the leak-cookie branch.
+- Depending on the residual id, the B request may emit a fresh random
+  32-char `Set-Cookie`, but never a leaked one; a 32-byte id also gives no
+  leak cookie, and the forge never lands on `PS(id)`.
 - Calibration attempts (19-byte and 32-byte id) both end in
   `CALIBRATE_FAILED stage1`; a `patch_low7` run and a `live_reference` run
   (one round each) both end in `HEAP_LEAK_FAILED` at stage 1.
+- One later bounded attempt tried to keep `send_cookie == 1` by landing the
+  OOM inside the cookie-send path (997-998 fillers, no `max_input_vars`
+  warning, a knob field to consume heap). The transition band between
+  "cookie sent and flag cleared" and "arm dies before session init" is under
+  1KB, while allocation granularity is about 4KB; 21 arms did not hit it.
+  Continuing would need a byte-level sweep and a new 64B-bin groom, i.e. a
+  separate project rather than a bounded round.
 
 This version is in the affected range, but this chain does **not** exploit
 it. The p2s `check` result `not vulnerable` for 8.2.34 means only "our leak
@@ -290,11 +305,11 @@ Verified on this lab (PROOF):
   the `0x7f...` pointer range)
 
 Affected but not exploited by this chain: 8.2.34 (stage 1 is blocked by
-session id validation; the 19-byte id is rejected and the 32-byte id gives
-no leak), 8.5.11 (unknown / LEAK_FAILED, environment-sensitive), and the
-fixed controls 8.4.27 / 8.5.12 / 8.2.35 / 8.3.36 (negative only, not proof
-that the build is patched). The per-version sections above carry the
-evidence.
+`reset_id`/`send_cookie` semantics, not by session id validation; both
+19-byte and 32-byte ids give no leak), 8.5.11 (unknown / LEAK_FAILED,
+environment-sensitive), and the fixed controls 8.4.27 / 8.5.12 / 8.2.35 /
+8.3.36 (negative only, not proof that the build is patched). The per-version
+sections above carry the evidence.
 
 Not applicable:
 
