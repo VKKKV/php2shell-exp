@@ -513,7 +513,7 @@
     "file": "/out/p1"
   },
   "calibration": {
-    "generated_by": "seed (dinosn 8.5.11 port: 31B live carrier; re-measured by chain.py calibrate)"
+    "generated_by": "seed (dinosn 8.5.11 port: 31B live carrier); NOT calibrated"
   },
   "http": {
     "user_agent": "Mozilla/5.0 (php2shell-test/2.0.0)"

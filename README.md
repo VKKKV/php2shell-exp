@@ -216,7 +216,8 @@ its verified 19-byte id.
 
 `php:8.2.34-apache`, libphp sha256 `42ae9f69...`, `zif_system +0x39b8a0`,
 `zval_ptr_dtor +0x487650`. Two calibration attempts and two carrier rounds
-were spent, then stopped:
+were spent, then stopped (the archived logs record `CALIBRATE_FAILED stage1`;
+the request-level symptoms below are from the lab session):
 
 - Endpoint `/index.php` (same 10-byte path as 8.4.26); `session.save_path=/tmp`
   writable; exactly one `www-data` prefork worker.
@@ -242,18 +243,22 @@ The 8.5.11 port was exercised against dinosn's pinned image
 replicated: `mem_limit 256m`, `pids_limit 128`, tmpfs `/tmp` 64m, hostname
 `php-rfc1867-rce-lab`, and a `t.php?mode=warm` 12 MiB prewarm.
 
-Observed failure point (two bounded rounds, then stop):
+Observed failure point (two bounded rounds, then stop; the archived log
+records the request sizes, the OOM page and `LEAK_FAILED`, while the warning
+text and byte-level comparisons below are from the lab session):
 
-- leak-A is byte-identical to dinosn's (25,281,929-byte request) and behaves
-  identically: max_input_vars warning, "session cookie cannot be sent after
-  headers have already been sent", OOM `tried to allocate 6296371 bytes`.
+- leak-A matches dinosn's (25,281,929-byte request) and behaves identically:
+  max_input_vars warning, "session cookie cannot be sent after headers have
+  already been sent", OOM `tried to allocate 6296371 bytes`.
 - After leak-A the stale session id is visible at `chunk+0xb75a0` (ASCII
   `17981b3ea7563d0ed4df6f7a`); dinosn's report places it at
   `chunk+0xb75c0`, a 0x20 difference.
-- leak-B (68,456 bytes, exactly 1000 vars) returns no `Set-Cookie`; body is
-  `Fatal error: Allowed memory size of 16777216 bytes exhausted (tried to
-  allocate 12884901923 bytes)` — `ZSTR_LEN` read as -5, i.e. the
-  `a0447[0..256]` array did not land at `PS(id)-0x10`.
+- leak-B (68,456 bytes; 1001 array fields, over the 1000-var limit) returns
+  no `Set-Cookie`; body is `Fatal error: Allowed memory size of 16777216
+  bytes exhausted (tried to allocate 12884901923 bytes, i.e. 0x300000023)`.
+  The length field was read as a large 64-bit value rather than 167; the
+  exact adjacent-field pairing was not reproduced, but the `a0447[0..256]`
+  array did not land at `PS(id)-0x10`.
 - A bounded target sweep 440..455 (m=257) found only target 446 producing a
   normal 32-hex session cookie (233-byte response); every other target
   returned the 346-byte OOM page. No 512-byte disclosure. The sweep was
